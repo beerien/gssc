@@ -206,25 +206,23 @@
     // CORS proxy — required because browsers block direct cross-origin
     // fetches of .ics files. allorigins.win is a free, open proxy service.
     // It wraps the response in JSON: { contents: "raw ical text" }
-    var PROXY_URL = 'https://api.allorigins.win/get?url=' +
-                    encodeURIComponent(ICAL_URL);
+    var PROXY_URL = 'https://corsproxy.io/?' +
+                encodeURIComponent(ICAL_URL);
 
     // -------------------------------------------------------------------------
     // FETCH AND RENDER
     // -------------------------------------------------------------------------
     fetch(PROXY_URL)
-      .then(function(response) {
-        if (!response.ok) {
-          throw new Error('Network response was not ok: ' + response.status);
-        }
-        return response.json();
-      })
-      .then(function(data) {
-        // allorigins wraps the raw content in data.contents
-        var icalText = data.contents;
-        if (!icalText) {
-          throw new Error('Empty response from proxy.');
-        }
+.then(function(response) {
+  if (!response.ok) {
+    throw new Error('Network response was not ok: ' + response.status);
+  }
+  return response.text();
+})
+.then(function(icalText) {
+  if (!icalText) {
+    throw new Error('Empty response from proxy.');
+  }
         var events = parseIcal(icalText);
         var diveEvents = filterEvents(events, FILTER_PREFIX);
         renderEvents(diveEvents);
