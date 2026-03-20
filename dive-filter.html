@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <!--
+    DIVE EVENT FILTER
+    Hosted on GitHub Pages, embedded as an iframe in SwimTopia.
+    This page is intentionally blank — the script does all the work.
+
+    "I am fluent in over six million forms of communication,
+     and none of them involve showing non-dive events." - C-3PO, probably
+  -->
+  <style>
+    /* Zero footprint — this page should be invisible in the iframe */
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      overflow: hidden;
+      height: 0;
+    }
+  </style>
+</head>
+<body>
+<script>
+  // ---------------------------------------------------------------------------
+  // DIVE EVENT FILTER
+  // Runs inside an iframe embedded on the SwimTopia calendar page.
+  // Reaches into window.parent and hides any calendar row whose visible
+  // text does NOT begin with "dive".
+  //
+  // Confirmed SwimTopia selectors (gregory.swimtopia.com, inspected 2025):
+  //   tr.swim_meet     — swim meet rows
+  //   tr.generic_event — non-meet calendar event rows
+  // ---------------------------------------------------------------------------
+
+  function runFilter() {
+    try {
+
+      // Target the parent SwimTopia page document
+      var parentDoc = window.parent.document;
+
+      // ----------------------------------------------------------------------
+      // CONFIGURATION — update these if SwimTopia changes their markup
+      // ----------------------------------------------------------------------
+      var eventRowSelector = 'tr.swim_meet, tr.generic_event';
+      var filterPrefix     = 'dive';
+
+      // ----------------------------------------------------------------------
+      // FILTER LOGIC
+      // ----------------------------------------------------------------------
+      var rows = parentDoc.querySelectorAll(eventRowSelector);
+
+      if (rows.length === 0) {
+        console.warn(
+          'Dive filter: no rows matched "' + eventRowSelector + '" in parent. ' +
+          'Verify SwimTopia class names in DevTools — they may have changed.'
+        );
+        return;
+      }
+
+      rows.forEach(function (row) {
+
+        // Get all visible text in the row, trim whitespace, lowercase
+        var rowText = row.innerText.trim().toLowerCase();
+
+        // Hide rows that do NOT start with "dive"
+        if (rowText.indexOf(filterPrefix) !== 0) {
+          row.style.display = 'none';
+        }
+
+      });
+
+      console.log('Dive filter applied successfully.');
+
+    } catch (e) {
+      // If same-origin policy blocks window.parent access, this will catch it
+      // and log a clean error rather than breaking the page silently
+      console.error('Dive filter blocked by browser security policy: ', e);
+    }
+  }
+
+  // Run immediately if parent is already loaded, otherwise wait for it
+  if (document.readyState === 'complete') {
+    runFilter();
+  } else {
+    window.addEventListener('load', runFilter);
+  }
+
+</script>
+</body>
+</html>
