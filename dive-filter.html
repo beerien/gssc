@@ -1,107 +1,441 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dive Events — Gregory Seahurst Swim Club</title>
   <!--
-    DIVE EVENT FILTER
-    Hosted on GitHub Pages, embedded as an iframe in SwimTopia.
-    Targets the Upcoming Events snippet (ul.content-list li elements).
-    Hides any list item whose anchor text does NOT start with "dive".
+    GSSC DIVE EVENTS PAGE
+    Fetches the live SwimTopia iCal feed, filters for events whose
+    SUMMARY starts with "dive" (case-insensitive), and renders them
+    in a clean list matching GSSC's blue color scheme.
 
-    "Searching for dive events like R2-D2 searching for Obi-Wan." - C-3PO
+    Data source: https://gregory.swimtopia.com/calendar_events.ics
+    Hosted on:   https://beerien.github.io/gssc/dive-filter.html
+
+    "It's not a moon. It's a dive meet." - Obi-Wan, probably
   -->
   <style>
-    /* Zero footprint — this page should be invisible in the iframe */
-    html, body {
+    /* -----------------------------------------------------------------------
+       BASE STYLES
+       Simple, clean, mobile-friendly. Blue palette to match GSSC branding.
+    ----------------------------------------------------------------------- */
+    * {
+      box-sizing: border-box;
       margin: 0;
       padding: 0;
-      background: transparent;
-      overflow: hidden;
-      height: 0;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f4f8;
+      color: #333;
+      padding: 20px;
+    }
+
+    /* Page header */
+    .page-header {
+      background: #1a5276;
+      color: white;
+      padding: 16px 20px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+
+    .page-header h1 {
+      font-size: 1.4em;
+      font-weight: bold;
+    }
+
+    .page-header p {
+      font-size: 0.85em;
+      margin-top: 4px;
+      opacity: 0.85;
+    }
+
+    /* Loading and error states */
+    .status-message {
+      text-align: center;
+      padding: 30px;
+      color: #666;
+      font-style: italic;
+    }
+
+    .error-message {
+      background: #fdecea;
+      border: 1px solid #e74c3c;
+      border-radius: 6px;
+      padding: 16px;
+      color: #c0392b;
+      font-size: 0.9em;
+    }
+
+    /* No events found state */
+    .no-events {
+      text-align: center;
+      padding: 30px;
+      color: #888;
+    }
+
+    /* Event list */
+    .event-list {
+      list-style: none;
+    }
+
+    /* Individual event card */
+    .event-card {
+      background: white;
+      border-radius: 6px;
+      border-left: 5px solid #1a5276;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    /* Date badge — blue box above the title */
+    .event-date {
+      display: inline-block;
+      background: #2980b9;
+      color: white;
+      font-size: 0.75em;
+      font-weight: bold;
+      padding: 3px 8px;
+      border-radius: 3px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /* Event title */
+    .event-title {
+      font-size: 1em;
+      font-weight: bold;
+      color: #1a5276;
+      margin-bottom: 4px;
+    }
+
+    /* Location line */
+    .event-location {
+      font-size: 0.85em;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .event-location::before {
+      content: "📍 ";
+    }
+
+    /* Time line */
+    .event-time {
+      font-size: 0.85em;
+      color: #555;
+      margin-bottom: 4px;
+    }
+
+    .event-time::before {
+      content: "🕐 ";
+    }
+
+    /* Description */
+    .event-description {
+      font-size: 0.82em;
+      color: #555;
+      margin-top: 8px;
+      line-height: 1.5;
+      border-top: 1px solid #eee;
+      padding-top: 8px;
+    }
+
+    /* SwimTopia link at bottom */
+    .swimtopia-link {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 0.8em;
+      color: #888;
+    }
+
+    .swimtopia-link a {
+      color: #2980b9;
+      text-decoration: none;
+    }
+
+    .swimtopia-link a:hover {
+      text-decoration: underline;
+    }
+
+    /* Responsive — tighten up on small screens */
+    @media (max-width: 480px) {
+      body {
+        padding: 10px;
+      }
+      .page-header h1 {
+        font-size: 1.2em;
+      }
     }
   </style>
 </head>
 <body>
-<script>
 
-  function runFilter() {
-    try {
+  <div class="page-header">
+    <h1>🤿 Dive Events</h1>
+    <p>Gregory Seahurst Swim Club — current season schedule</p>
+  </div>
 
-      // Target the parent SwimTopia page document
-      var parentDoc = window.parent.document;
+  <!-- Content area — populated by JavaScript below -->
+  <div id="content">
+    <p class="status-message">Loading dive events...</p>
+  </div>
 
-      // ----------------------------------------------------------------------
-      // CONFIGURATION
-      // Confirmed selectors from DevTools inspection of events-only page:
-      //   ul.content-list li  — each event row in the Upcoming Events snippet
-      //   li > a              — the anchor tag containing the event title text
-      //
-      // Update filterPrefix to change what events are shown.
-      // ----------------------------------------------------------------------
-      var listItemSelector = 'ul.content-list li';
-      var filterPrefix     = 'dive';
+  <div class="swimtopia-link">
+    <a href="https://gregory.swimtopia.com/swim_meets" target="_blank">
+      View full schedule on SwimTopia →
+    </a>
+  </div>
 
-      // ----------------------------------------------------------------------
-      // FILTER LOGIC
-      // Grab every list item, find its anchor text, hide if it doesn't
-      // start with our prefix. Case-insensitive match.
-      // ----------------------------------------------------------------------
-      var items = parentDoc.querySelectorAll(listItemSelector);
+  <script>
+    // -------------------------------------------------------------------------
+    // CONFIGURATION
+    // -------------------------------------------------------------------------
 
-      if (items.length === 0) {
-        console.warn(
-          'Dive filter: no items matched "' + listItemSelector + '" in parent. ' +
-          'Verify SwimTopia class names in DevTools — they may have changed.'
-        );
+    // SwimTopia public iCal feed URL
+    var ICAL_URL = 'https://gregory.swimtopia.com/calendar_events.ics';
+
+    // Only show events whose SUMMARY starts with this prefix (case-insensitive)
+    var FILTER_PREFIX = 'dive';
+
+    // CORS proxy — required because browsers block direct cross-origin
+    // fetches of .ics files. allorigins.win is a free, open proxy service.
+    // It wraps the response in JSON: { contents: "raw ical text" }
+    var PROXY_URL = 'https://api.allorigins.win/get?url=' +
+                    encodeURIComponent(ICAL_URL);
+
+    // -------------------------------------------------------------------------
+    // FETCH AND RENDER
+    // -------------------------------------------------------------------------
+    fetch(PROXY_URL)
+      .then(function(response) {
+        if (!response.ok) {
+          throw new Error('Network response was not ok: ' + response.status);
+        }
+        return response.json();
+      })
+      .then(function(data) {
+        // allorigins wraps the raw content in data.contents
+        var icalText = data.contents;
+        if (!icalText) {
+          throw new Error('Empty response from proxy.');
+        }
+        var events = parseIcal(icalText);
+        var diveEvents = filterEvents(events, FILTER_PREFIX);
+        renderEvents(diveEvents);
+      })
+      .catch(function(err) {
+        document.getElementById('content').innerHTML =
+          '<div class="error-message">' +
+          '<strong>Could not load dive events.</strong><br>' +
+          'Error: ' + err.message + '<br><br>' +
+          'Try refreshing, or visit the ' +
+          '<a href="https://gregory.swimtopia.com/swim_meets">full schedule</a> ' +
+          'on SwimTopia directly.' +
+          '</div>';
+        console.error('Dive filter fetch error:', err);
+      });
+
+    // -------------------------------------------------------------------------
+    // PARSE iCAL
+    // Extracts VEVENT blocks from raw iCal text.
+    // Returns an array of plain objects with: summary, dtstart, dtend,
+    // location, description.
+    // -------------------------------------------------------------------------
+    function parseIcal(text) {
+      var events = [];
+
+      // Unfold continuation lines (iCal lines wrapped with leading space/tab)
+      text = text.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
+
+      // Split into individual VEVENT blocks
+      var eventBlocks = text.split('BEGIN:VEVENT');
+
+      // First element is the calendar header — skip it
+      for (var i = 1; i < eventBlocks.length; i++) {
+        var block = eventBlocks[i];
+        var event = {};
+
+        event.summary     = extractField(block, 'SUMMARY');
+        event.location    = extractField(block, 'LOCATION');
+        event.description = extractField(block, 'DESCRIPTION');
+        event.dtstart     = extractField(block, 'DTSTART');
+        event.dtend       = extractField(block, 'DTEND');
+
+        // Only add if we have at least a summary and a start date
+        if (event.summary && event.dtstart) {
+          events.push(event);
+        }
+      }
+
+      return events;
+    }
+
+    // -------------------------------------------------------------------------
+    // EXTRACT FIELD
+    // Pulls the value of a named iCal property from a VEVENT block.
+    // Handles properties with parameters e.g. DTSTART;TZID=...:value
+    // -------------------------------------------------------------------------
+    function extractField(block, fieldName) {
+      // Match the field name, optional parameters after semicolon, colon, value
+      var regex = new RegExp(fieldName + '(?:;[^:]*)?:([^\\r\\n]*)', 'i');
+      var match = block.match(regex);
+      if (!match) return '';
+
+      // Clean up iCal escape sequences
+      return match[1]
+        .replace(/\\,/g, ',')
+        .replace(/\\n/g, ' ')
+        .replace(/\\;/g, ';')
+        .replace(/&nbsp\\;/g, ' ')
+        .trim();
+    }
+
+    // -------------------------------------------------------------------------
+    // FILTER EVENTS
+    // Returns only events whose summary starts with the given prefix.
+    // Case-insensitive. Trims leading whitespace before comparing.
+    // -------------------------------------------------------------------------
+    function filterEvents(events, prefix) {
+      var lowerPrefix = prefix.toLowerCase();
+      return events.filter(function(event) {
+        return event.summary.trim().toLowerCase().indexOf(lowerPrefix) === 0;
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // FORMAT DATE
+    // Converts iCal DTSTART value to a human-readable string.
+    // Handles both date-only (20260701) and datetime (20260701T163000) formats.
+    // -------------------------------------------------------------------------
+    function formatDate(dtValue) {
+      if (!dtValue) return '';
+
+      // Date-only format: YYYYMMDD
+      if (dtValue.length === 8) {
+        var year  = dtValue.substring(0, 4);
+        var month = parseInt(dtValue.substring(4, 6), 10) - 1;
+        var day   = parseInt(dtValue.substring(6, 8), 10);
+        var d = new Date(year, month, day);
+        return d.toLocaleDateString('en-US', {
+          weekday: 'short',
+          month:   'long',
+          day:     'numeric',
+          year:    'numeric'
+        });
+      }
+
+      // DateTime format: YYYYMMDDTHHmmss
+      if (dtValue.length >= 15) {
+        var year  = dtValue.substring(0, 4);
+        var month = parseInt(dtValue.substring(4, 6), 10) - 1;
+        var day   = parseInt(dtValue.substring(6, 8), 10);
+        var hour  = parseInt(dtValue.substring(9, 11), 10);
+        var min   = parseInt(dtValue.substring(11, 13), 10);
+        var d = new Date(year, month, day, hour, min);
+        return d.toLocaleDateString('en-US', {
+          weekday: 'short',
+          month:   'long',
+          day:     'numeric',
+          year:    'numeric'
+        });
+      }
+
+      return dtValue;
+    }
+
+    // -------------------------------------------------------------------------
+    // FORMAT TIME
+    // Extracts and formats the time portion of a DTSTART value.
+    // Returns empty string for date-only events.
+    // -------------------------------------------------------------------------
+    function formatTime(dtValue) {
+      if (!dtValue || dtValue.length < 15) return '';
+
+      var hour = parseInt(dtValue.substring(9, 11), 10);
+      var min  = dtValue.substring(11, 13);
+      var ampm = hour >= 12 ? 'PM' : 'AM';
+      var h12  = hour % 12 || 12;
+
+      return h12 + ':' + min + ' ' + ampm;
+    }
+
+    // -------------------------------------------------------------------------
+    // SORT EVENTS
+    // Sorts events chronologically by DTSTART value.
+    // iCal date strings sort correctly as plain strings (YYYYMMDD format).
+    // -------------------------------------------------------------------------
+    function sortEvents(events) {
+      return events.slice().sort(function(a, b) {
+        return a.dtstart > b.dtstart ? 1 : -1;
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // RENDER EVENTS
+    // Builds HTML for the filtered event list and injects it into #content.
+    // -------------------------------------------------------------------------
+    function renderEvents(events) {
+      var contentEl = document.getElementById('content');
+
+      if (events.length === 0) {
+        contentEl.innerHTML =
+          '<p class="no-events">No upcoming dive events found.<br>' +
+          'Check back soon!</p>';
         return;
       }
 
-      var showCount = 0;
-      var hideCount = 0;
+      // Sort chronologically before rendering
+      var sorted = sortEvents(events);
 
-      items.forEach(function (item) {
+      var html = '<ul class="event-list">';
 
-        // Find the anchor tag inside this list item — that holds the event title
-        var anchor = item.querySelector('a');
+      sorted.forEach(function(event) {
+        var dateStr = formatDate(event.dtstart);
+        var timeStr = formatTime(event.dtstart);
 
-        // If no anchor found, hide the item to be safe
-        if (!anchor) {
-          item.style.display = 'none';
-          hideCount++;
-          return;
+        html += '<li class="event-card">';
+        html += '  <span class="event-date">' + escapeHtml(dateStr) + '</span>';
+        html += '  <div class="event-title">' + escapeHtml(event.summary) + '</div>';
+
+        if (event.location) {
+          html += '  <div class="event-location">' +
+                  escapeHtml(event.location) + '</div>';
         }
 
-        // Get the anchor text, trim whitespace, lowercase for comparison
-        var titleText = anchor.innerText.trim().toLowerCase();
-
-        // Hide items that do NOT start with "dive"
-        if (titleText.indexOf(filterPrefix) !== 0) {
-          item.style.display = 'none';
-          hideCount++;
-        } else {
-          showCount++;
+        if (timeStr) {
+          html += '  <div class="event-time">' + escapeHtml(timeStr) + '</div>';
         }
 
+        if (event.description) {
+          html += '  <div class="event-description">' +
+                  escapeHtml(event.description) + '</div>';
+        }
+
+        html += '</li>';
       });
 
-      console.log(
-        'Dive filter applied — showing: ' + showCount +
-        ', hidden: ' + hideCount
-      );
-
-    } catch (e) {
-      // Same-origin policy block will land here
-      console.error('Dive filter blocked by browser security policy: ', e);
+      html += '</ul>';
+      contentEl.innerHTML = html;
     }
-  }
 
-  // Run immediately if parent already loaded, otherwise wait
-  if (window.parent.document.readyState === 'complete') {
-    runFilter();
-  } else {
-    window.parent.addEventListener('load', runFilter);
-  }
+    // -------------------------------------------------------------------------
+    // ESCAPE HTML
+    // Prevents XSS from any unexpected content in the iCal feed.
+    // -------------------------------------------------------------------------
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
 
-</script>
+  </script>
 </body>
 </html>
