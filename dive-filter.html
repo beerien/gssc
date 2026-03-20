@@ -5,10 +5,10 @@
   <!--
     DIVE EVENT FILTER
     Hosted on GitHub Pages, embedded as an iframe in SwimTopia.
-    This page is intentionally blank — the script does all the work.
+    Targets the Upcoming Events snippet (ul.content-list li elements).
+    Hides any list item whose anchor text does NOT start with "dive".
 
-    "I am fluent in over six million forms of communication,
-     and none of them involve showing non-dive events." - C-3PO, probably
+    "Searching for dive events like R2-D2 searching for Obi-Wan." - C-3PO
   -->
   <style>
     /* Zero footprint — this page should be invisible in the iframe */
@@ -23,16 +23,6 @@
 </head>
 <body>
 <script>
-  // ---------------------------------------------------------------------------
-  // DIVE EVENT FILTER
-  // Runs inside an iframe embedded on the SwimTopia calendar page.
-  // Reaches into window.parent and hides any calendar row whose visible
-  // text does NOT begin with "dive".
-  //
-  // Confirmed SwimTopia selectors (gregory.swimtopia.com, inspected 2025):
-  //   tr.swim_meet     — swim meet rows
-  //   tr.generic_event — non-meet calendar event rows
-  // ---------------------------------------------------------------------------
 
   function runFilter() {
     try {
@@ -41,50 +31,75 @@
       var parentDoc = window.parent.document;
 
       // ----------------------------------------------------------------------
-      // CONFIGURATION — update these if SwimTopia changes their markup
+      // CONFIGURATION
+      // Confirmed selectors from DevTools inspection of events-only page:
+      //   ul.content-list li  — each event row in the Upcoming Events snippet
+      //   li > a              — the anchor tag containing the event title text
+      //
+      // Update filterPrefix to change what events are shown.
       // ----------------------------------------------------------------------
-      var eventRowSelector = 'tr.swim_meet, tr.generic_event';
+      var listItemSelector = 'ul.content-list li';
       var filterPrefix     = 'dive';
 
       // ----------------------------------------------------------------------
       // FILTER LOGIC
+      // Grab every list item, find its anchor text, hide if it doesn't
+      // start with our prefix. Case-insensitive match.
       // ----------------------------------------------------------------------
-      var rows = parentDoc.querySelectorAll(eventRowSelector);
+      var items = parentDoc.querySelectorAll(listItemSelector);
 
-      if (rows.length === 0) {
+      if (items.length === 0) {
         console.warn(
-          'Dive filter: no rows matched "' + eventRowSelector + '" in parent. ' +
+          'Dive filter: no items matched "' + listItemSelector + '" in parent. ' +
           'Verify SwimTopia class names in DevTools — they may have changed.'
         );
         return;
       }
 
-      rows.forEach(function (row) {
+      var showCount = 0;
+      var hideCount = 0;
 
-        // Get all visible text in the row, trim whitespace, lowercase
-        var rowText = row.innerText.trim().toLowerCase();
+      items.forEach(function (item) {
 
-        // Hide rows that do NOT start with "dive"
-        if (rowText.indexOf(filterPrefix) !== 0) {
-          row.style.display = 'none';
+        // Find the anchor tag inside this list item — that holds the event title
+        var anchor = item.querySelector('a');
+
+        // If no anchor found, hide the item to be safe
+        if (!anchor) {
+          item.style.display = 'none';
+          hideCount++;
+          return;
+        }
+
+        // Get the anchor text, trim whitespace, lowercase for comparison
+        var titleText = anchor.innerText.trim().toLowerCase();
+
+        // Hide items that do NOT start with "dive"
+        if (titleText.indexOf(filterPrefix) !== 0) {
+          item.style.display = 'none';
+          hideCount++;
+        } else {
+          showCount++;
         }
 
       });
 
-      console.log('Dive filter applied successfully.');
+      console.log(
+        'Dive filter applied — showing: ' + showCount +
+        ', hidden: ' + hideCount
+      );
 
     } catch (e) {
-      // If same-origin policy blocks window.parent access, this will catch it
-      // and log a clean error rather than breaking the page silently
+      // Same-origin policy block will land here
       console.error('Dive filter blocked by browser security policy: ', e);
     }
   }
 
-  // Run immediately if parent is already loaded, otherwise wait for it
-  if (document.readyState === 'complete') {
+  // Run immediately if parent already loaded, otherwise wait
+  if (window.parent.document.readyState === 'complete') {
     runFilter();
   } else {
-    window.addEventListener('load', runFilter);
+    window.parent.addEventListener('load', runFilter);
   }
 
 </script>
