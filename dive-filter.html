@@ -245,34 +245,37 @@
     // Returns an array of plain objects with: summary, dtstart, dtend,
     // location, description.
     // -------------------------------------------------------------------------
-    function parseIcal(text) {
-      var events = [];
+function parseIcal(text) {
+  var events = [];
 
-      // Unfold continuation lines (iCal lines wrapped with leading space/tab)
-      text = text.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
+  // Normalize all line endings to \n regardless of source format
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-      // Split into individual VEVENT blocks
-      var eventBlocks = text.split('BEGIN:VEVENT');
+  // Unfold continuation lines (iCal lines wrapped with leading space/tab)
+  text = text.replace(/\n[ \t]/g, '');
 
-      // First element is the calendar header — skip it
-      for (var i = 1; i < eventBlocks.length; i++) {
-        var block = eventBlocks[i];
-        var event = {};
+  // Split into individual VEVENT blocks
+  var eventBlocks = text.split('BEGIN:VEVENT');
 
-        event.summary     = extractField(block, 'SUMMARY');
-        event.location    = extractField(block, 'LOCATION');
-        event.description = extractField(block, 'DESCRIPTION');
-        event.dtstart     = extractField(block, 'DTSTART');
-        event.dtend       = extractField(block, 'DTEND');
+  // First element is the calendar header — skip it
+  for (var i = 1; i < eventBlocks.length; i++) {
+    var block = eventBlocks[i];
+    var event = {};
 
-        // Only add if we have at least a summary and a start date
-        if (event.summary && event.dtstart) {
-          events.push(event);
-        }
-      }
+    event.summary     = extractField(block, 'SUMMARY');
+    event.location    = extractField(block, 'LOCATION');
+    event.description = extractField(block, 'DESCRIPTION');
+    event.dtstart     = extractField(block, 'DTSTART');
+    event.dtend       = extractField(block, 'DTEND');
 
-      return events;
+    // Only add if we have at least a summary and a start date
+    if (event.summary && event.dtstart) {
+      events.push(event);
     }
+  }
+
+  return events;
+}
 
     // -------------------------------------------------------------------------
     // EXTRACT FIELD
