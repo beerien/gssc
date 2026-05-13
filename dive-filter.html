@@ -13,7 +13,13 @@
     Data source: https://gregory.swimtopia.com/calendar_events.ics
     Hosted on:   https://beerien.github.io/gssc/dive-filter.html
 
+    Companion page: https://beerien.github.io/gssc/swim-filter.html
+
+    Author:       ACS
+    Last Updated: 2026-05-13
+
     "It's not a moon. It's a dive meet." - Obi-Wan, probably
+    "Course I know what a dive meet is." - Forrest Gump, probably not
   -->
   <style>
     /* -----------------------------------------------------------------------
@@ -146,6 +152,26 @@
       padding-top: 8px;
     }
 
+    /* Cross-link to swim page — mirrors swim-filter.html companion-link style */
+    .companion-link {
+      text-align: center;
+      margin-bottom: 16px;
+      font-size: 0.82em;
+    }
+
+    .companion-link a {
+      color: #1f618d;
+      text-decoration: none;
+      background: #dbeafe;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid #aed6f1;
+    }
+
+    .companion-link a:hover {
+      background: #aed6f1;
+    }
+
     /* SwimTopia link at bottom */
     .swimtopia-link {
       text-align: center;
@@ -177,8 +203,15 @@
 <body>
 
   <div class="page-header">
-    <h1>🤿 Dive Events</h1>
+    <h1>💦 Dive Events</h1>
     <p>Gregory Seahurst Swim Club — current season schedule</p>
+  </div>
+
+  <!-- Cross-link to companion swim page -->
+  <div class="companion-link">
+    <a href="https://beerien.github.io/gssc/swim-filter.html">
+      🏊‍♂️ View Swim Events →
+    </a>
   </div>
 
   <!-- Content area — populated by JavaScript below -->
@@ -195,6 +228,8 @@
   <script>
     // -------------------------------------------------------------------------
     // CONFIGURATION
+    // Author:       ACS
+    // Last Updated: 2026-05-13
     // -------------------------------------------------------------------------
 
     // SwimTopia public iCal feed URL
@@ -211,19 +246,20 @@
 
     // -------------------------------------------------------------------------
     // FETCH AND RENDER
+    // "These aren't the meets you're looking for." - Obi-Wan
     // -------------------------------------------------------------------------
     fetch(PROXY_URL)
-.then(function(response) {
-  if (!response.ok) {
-    throw new Error('Network response was not ok: ' + response.status);
-  }
-  return response.text();
-})
-.then(function(icalText) {
-  if (!icalText) {
-    throw new Error('Empty response from proxy.');
-  }
-        var events = parseIcal(icalText);
+      .then(function(response) {
+        if (!response.ok) {
+          throw new Error('Network response was not ok: ' + response.status);
+        }
+        return response.text();
+      })
+      .then(function(icalText) {
+        if (!icalText) {
+          throw new Error('Empty response from proxy.');
+        }
+        var events     = parseIcal(icalText);
         var diveEvents = filterEvents(events, FILTER_PREFIX);
         renderEvents(diveEvents);
       })
@@ -245,37 +281,37 @@
     // Returns an array of plain objects with: summary, dtstart, dtend,
     // location, description.
     // -------------------------------------------------------------------------
-function parseIcal(text) {
-  var events = [];
+    function parseIcal(text) {
+      var events = [];
 
-  // Normalize all line endings to \n regardless of source format
-  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      // Normalize all line endings to \n regardless of source format
+      text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-  // Unfold continuation lines (iCal lines wrapped with leading space/tab)
-  text = text.replace(/\n[ \t]/g, '');
+      // Unfold continuation lines (iCal lines wrapped with leading space/tab)
+      text = text.replace(/\n[ \t]/g, '');
 
-  // Split into individual VEVENT blocks
-  var eventBlocks = text.split('BEGIN:VEVENT');
+      // Split into individual VEVENT blocks
+      var eventBlocks = text.split('BEGIN:VEVENT');
 
-  // First element is the calendar header — skip it
-  for (var i = 1; i < eventBlocks.length; i++) {
-    var block = eventBlocks[i];
-    var event = {};
+      // First element is the calendar header — skip it
+      for (var i = 1; i < eventBlocks.length; i++) {
+        var block = eventBlocks[i];
+        var event = {};
 
-    event.summary     = extractField(block, 'SUMMARY');
-    event.location    = extractField(block, 'LOCATION');
-    event.description = extractField(block, 'DESCRIPTION');
-    event.dtstart     = extractField(block, 'DTSTART');
-    event.dtend       = extractField(block, 'DTEND');
+        event.summary     = extractField(block, 'SUMMARY');
+        event.location    = extractField(block, 'LOCATION');
+        event.description = extractField(block, 'DESCRIPTION');
+        event.dtstart     = extractField(block, 'DTSTART');
+        event.dtend       = extractField(block, 'DTEND');
 
-    // Only add if we have at least a summary and a start date
-    if (event.summary && event.dtstart) {
-      events.push(event);
+        // Only add if we have at least a summary and a start date
+        if (event.summary && event.dtstart) {
+          events.push(event);
+        }
+      }
+
+      return events;
     }
-  }
-
-  return events;
-}
 
     // -------------------------------------------------------------------------
     // EXTRACT FIELD
@@ -380,6 +416,7 @@ function parseIcal(text) {
     // -------------------------------------------------------------------------
     // RENDER EVENTS
     // Builds HTML for the filtered event list and injects it into #content.
+    // "I am putting myself to the fullest possible use." - HAL 9000
     // -------------------------------------------------------------------------
     function renderEvents(events) {
       var contentEl = document.getElementById('content');
@@ -428,6 +465,7 @@ function parseIcal(text) {
     // -------------------------------------------------------------------------
     // ESCAPE HTML
     // Prevents XSS from any unexpected content in the iCal feed.
+    // "That's no moon... that's a script injection." - Obi-Wan
     // -------------------------------------------------------------------------
     function escapeHtml(str) {
       return String(str)
