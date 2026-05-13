@@ -317,20 +317,24 @@
     // SwimTopia public iCal feed URL (no auth token — calendar is public)
     var ICAL_URL = 'https://gregory.swimtopia.com/calendar_events.ics';
 
-    // Base swimmer emoji surrogate pair — matches all ZWJ gender variants
-    // (🏊‍♂️ 🏊‍♀️ 🏊). Used to identify swim events in the feed.
+    // Base swimmer emoji — used ONLY for meet detection, not page filtering.
+    // Meets = emoji events that also hit a MEET_KEYWORD.
+    // Non-emoji events that are not dive and not hidden land in Other.
     var SWIM_EMOJI = '\uD83C\uDFCA';
 
-    // MEET DETECTION KEYWORDS (case-insensitive substring match on summary)
-    // Derived from exhaustive review of the 2026 live feed. Update if
-    // GSSC changes their naming conventions next season.
-    //
+    // DIVE EXCLUSION PREFIX — events whose summary starts with this string
+    // belong on dive-filter.html, not here. Case-insensitive prefix match.
+    var DIVE_PREFIX = 'dive';
+
+    // MEET DETECTION KEYWORDS (case-insensitive substring, swim emoji events only)
+    // Derived from exhaustive review of the 2026 live feed. Update if GSSC
+    // changes naming conventions next season.
     // "Fascinating. They appear to be organizing by keyword." - Spock
     var MEET_KEYWORDS = ['@', 'meet', 'prelims', 'champs', 'showcase', '\uD83C\uDFC6'];
-    //                   ^     ^       ^           ^         ^            ^ trophy emoji 🏆
+    //                   ^     ^       ^           ^         ^            ^ trophy emoji
 
-    // Events whose summary contains this string are hidden entirely.
-    // POST SEASON SIGN UP is an admin window, not a competition event.
+    // Events whose summary contains this string are dropped entirely.
+    // POST SEASON SIGN UP is an admin signup window, not a competition.
     var HIDDEN_KEYWORD = 'POST SEASON';
 
     // CORS proxy — required because browsers block direct cross-origin
@@ -339,6 +343,15 @@
 
     // Module-level event store — populated after fetch, used by applyFilter()
     var allSwimEvents = [];
+
+    // -------------------------------------------------------------------------
+    // WIRE CHECKBOX HANDLERS
+    // Done unconditionally at script load — NOT inside .then() — so checkboxes
+    // are always interactive regardless of fetch success or failure.
+    // "Mr. Data, make it so." - Picard
+    // -------------------------------------------------------------------------
+    document.getElementById('chk-meets').addEventListener('change', applyFilter);
+    document.getElementById('chk-other').addEventListener('change', applyFilter);
 
     // -------------------------------------------------------------------------
     // FETCH AND RENDER
@@ -362,11 +375,7 @@
         // Categorize and store; hidden events are dropped here permanently
         allSwimEvents = categorizeEvents(swimEvts);
 
-        // Wire checkbox change handlers now that data is ready
-        document.getElementById('chk-meets').addEventListener('change', applyFilter);
-        document.getElementById('chk-other').addEventListener('change', applyFilter);
-
-        // Initial render with both categories visible
+        // Render with current checkbox state (both checked by default)
         applyFilter();
       })
       .catch(function(err) {
@@ -465,23 +474,28 @@
 
     // -------------------------------------------------------------------------
     // FILTER SWIM EVENTS
-    // Returns only events whose SUMMARY contains the 🏊 swimmer emoji.
+    // Removes dive events (summary starts with DIVE_PREFIX, case-insensitive).
+    // Everything remaining is a candidate swim event — emoji or not.
+    // Dive events belong exclusively on dive-filter.html.
+    //
+    // "These ARE the events you're looking for." - Obi-Wan (corrected)
     // -------------------------------------------------------------------------
     function filterSwimEvents(events) {
       return events.filter(function(event) {
-        return event.summary.indexOf(SWIM_EMOJI) !== -1;
+        return event.summary.trim().toLowerCase().indexOf(DIVE_PREFIX) !== 0;
       });
     }
 
     // -------------------------------------------------------------------------
     // CATEGORIZE EVENTS
-    // Assigns each swim event a category: 'meet', 'other', or 'hidden'.
-    // Hidden events are dropped immediately and never reach the renderer.
+    // Assigns each swim event a category: 'meet', 'other', or drops it.
     //
     // Rules (evaluated in order):
-    //   1. Summary contains HIDDEN_KEYWORD  → dropped entirely
-    //   2. Summary contains any MEET_KEYWORD → category = 'meet'
-    //   3. Everything else                   → category = 'other'
+    //   1. Summary contains HIDDEN_KEYWORD        → dropped entirely
+    //   2. Has swim emoji AND a MEET_KEYWORD match → category = 'meet'
+    //   3. Everything else                         → category = 'other'
+    //      (includes non-emoji events: practice days, parent meetings,
+    //       social events, banquets — all club calendar items not dive)
     //
     // "It's a trap! (categorization trap, that is)" - Admiral Ackbar
     // -------------------------------------------------------------------------
@@ -491,17 +505,18 @@
       events.forEach(function(event) {
         var s = event.summary;
 
-        // Rule 1 — hidden entirely (POST SEASON SIGN UP signup window)
+        // Rule 1 — drop entirely (POST SEASON SIGN UP is an admin window)
         if (s.toUpperCase().indexOf(HIDDEN_KEYWORD) !== -1) {
-          return; // drop — forEach continue
+          return; // forEach continue — do not push
         }
 
-        // Rule 2 — meet detection via keyword list
-        var isMeet = MEET_KEYWORDS.some(function(kw) {
+        // Rule 2 — meet: must have swim emoji AND at least one meet keyword
+        var hasSwimEmoji = s.indexOf(SWIM_EMOJI) !== -1;
+        var hasMeetKeyword = MEET_KEYWORDS.some(function(kw) {
           return s.toLowerCase().indexOf(kw.toLowerCase()) !== -1;
         });
 
-        event.category = isMeet ? 'meet' : 'other';
+        event.category = (hasSwimEmoji && hasMeetKeyword) ? 'meet' : 'other';
         result.push(event);
       });
 
