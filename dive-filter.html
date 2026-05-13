@@ -172,6 +172,63 @@
       background: #aed6f1;
     }
 
+    /* -----------------------------------------------------------------------
+       FILTER CONTROLS
+       Mirrors swim-filter.html. Both checkboxes default to checked (visible)
+       since the total dive event count is small.
+    ----------------------------------------------------------------------- */
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .filter-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: white;
+      border: 1px solid #aed6f1;
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 0.85em;
+      font-weight: bold;
+      color: #1a5276;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .filter-label:hover {
+      background: #dbeafe;
+    }
+
+    /* Visually dim the pill when its checkbox is unchecked */
+    .filter-label.unchecked {
+      background: #f0f4f8;
+      color: #999;
+      border-color: #ccc;
+    }
+
+    .filter-label input[type="checkbox"] {
+      accent-color: #1a5276;
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+    }
+
+    /* Meet cards — dark blue left border (same as base) */
+    .event-card.cat-meet {
+      border-left-color: #1a5276;
+    }
+
+    /* Other dive event cards — teal left border to distinguish */
+    .event-card.cat-other {
+      border-left-color: #148f77;
+    }
+
     /* SwimTopia link at bottom */
     .swimtopia-link {
       text-align: center;
@@ -214,6 +271,18 @@
     </a>
   </div>
 
+  <!-- Category filter checkboxes — both checked by default (small event set) -->
+  <div class="filter-bar">
+    <label class="filter-label" id="label-meets">
+      <input type="checkbox" id="chk-meets" checked>
+      🏆 Dive Meets
+    </label>
+    <label class="filter-label" id="label-other">
+      <input type="checkbox" id="chk-other" checked>
+      🎉 Other Dive Events
+    </label>
+  </div>
+
   <!-- Content area — populated by JavaScript below -->
   <div id="content">
     <p class="status-message">Loading dive events...</p>
@@ -230,19 +299,40 @@
     // CONFIGURATION
     // Author:       ACS
     // Last Updated: 2026-05-13
+    // "I am putting myself to the fullest possible use." - HAL 9000
     // -------------------------------------------------------------------------
 
     // SwimTopia public iCal feed URL
     var ICAL_URL = 'https://gregory.swimtopia.com/calendar_events.ics';
 
-    // Only show events whose SUMMARY starts with this prefix (case-insensitive)
-    var FILTER_PREFIX = 'dive';
+    // DIVE PREFIX — events starting with this belong on this page.
+    // Case-insensitive prefix match on summary.
+    var DIVE_PREFIX = 'dive';
+
+    // PANCAKE KEYWORD — explicit include rule for the shared club event
+    // "📷Pancake Breakfast and Pictures" which doesn't start with "dive"
+    // but is relevant to the dive schedule.
+    var PANCAKE_KEYWORD = 'pancake';
+
+    // MEET DETECTION — dive events containing '@' are competition meets.
+    // All four 2026 dual meets use the "DIVE - X @ Y" or "Dive - X @ Y" format.
+    var MEET_KEYWORD = '@';
 
     // CORS proxy — required because browsers block direct cross-origin
-    // fetches of .ics files. allorigins.win is a free, open proxy service.
-    // It wraps the response in JSON: { contents: "raw ical text" }
-    var PROXY_URL = 'https://corsproxy.io/?' +
-                encodeURIComponent(ICAL_URL);
+    // fetches of .ics files. corsproxy.io returns plain text response.
+    var PROXY_URL = 'https://corsproxy.io/?' + encodeURIComponent(ICAL_URL);
+
+    // Module-level event store — populated after fetch, used by applyFilter()
+    var allDiveEvents = [];
+
+    // -------------------------------------------------------------------------
+    // WIRE CHECKBOX HANDLERS
+    // Done unconditionally at script load so checkboxes are always interactive
+    // regardless of fetch success or failure.
+    // "Mr. Data, make it so." - Picard
+    // -------------------------------------------------------------------------
+    document.getElementById('chk-meets').addEventListener('change', applyFilter);
+    document.getElementById('chk-other').addEventListener('change', applyFilter);
 
     // -------------------------------------------------------------------------
     // FETCH AND RENDER
@@ -259,9 +349,15 @@
         if (!icalText) {
           throw new Error('Empty response from proxy.');
         }
+
         var events     = parseIcal(icalText);
-        var diveEvents = filterEvents(events, FILTER_PREFIX);
-        renderEvents(diveEvents);
+        var diveEvents = filterDiveEvents(events);
+
+        // Categorize and store
+        allDiveEvents = categorizeEvents(diveEvents);
+
+        // Render with both checkboxes checked (default)
+        applyFilter();
       })
       .catch(function(err) {
         document.getElementById('content').innerHTML =
@@ -276,9 +372,35 @@
       });
 
     // -------------------------------------------------------------------------
+    // APPLY FILTER
+    // Reads checkbox states and re-renders the visible event subset.
+    // Updates pill label styles to reflect checked/unchecked state.
+    // Called on initial load and on every checkbox change event.
+    // -------------------------------------------------------------------------
+    function applyFilter() {
+      var showMeets = document.getElementById('chk-meets').checked;
+      var showOther = document.getElementById('chk-other').checked;
+
+      // Update pill appearance to reflect state
+      document.getElementById('label-meets').className =
+        'filter-label' + (showMeets ? '' : ' unchecked');
+      document.getElementById('label-other').className =
+        'filter-label' + (showOther ? '' : ' unchecked');
+
+      // Build visible subset based on checkbox state
+      var visible = allDiveEvents.filter(function(event) {
+        if (event.category === 'meet')  return showMeets;
+        if (event.category === 'other') return showOther;
+        return false;
+      });
+
+      renderEvents(visible);
+    }
+
+    // -------------------------------------------------------------------------
     // PARSE iCAL
     // Extracts VEVENT blocks from raw iCal text.
-    // Returns an array of plain objects with: summary, dtstart, dtend,
+    // Returns an array of plain objects: summary, dtstart, dtend,
     // location, description.
     // -------------------------------------------------------------------------
     function parseIcal(text) {
@@ -290,10 +412,9 @@
       // Unfold continuation lines (iCal lines wrapped with leading space/tab)
       text = text.replace(/\n[ \t]/g, '');
 
-      // Split into individual VEVENT blocks
+      // Split into individual VEVENT blocks; first element is header — skip it
       var eventBlocks = text.split('BEGIN:VEVENT');
 
-      // First element is the calendar header — skip it
       for (var i = 1; i < eventBlocks.length; i++) {
         var block = eventBlocks[i];
         var event = {};
@@ -304,7 +425,7 @@
         event.dtstart     = extractField(block, 'DTSTART');
         event.dtend       = extractField(block, 'DTEND');
 
-        // Only add if we have at least a summary and a start date
+        // Only include events with at minimum a summary and a start date
         if (event.summary && event.dtstart) {
           events.push(event);
         }
@@ -319,12 +440,11 @@
     // Handles properties with parameters e.g. DTSTART;TZID=...:value
     // -------------------------------------------------------------------------
     function extractField(block, fieldName) {
-      // Match the field name, optional parameters after semicolon, colon, value
       var regex = new RegExp(fieldName + '(?:;[^:]*)?:([^\\r\\n]*)', 'i');
       var match = block.match(regex);
       if (!match) return '';
 
-      // Clean up iCal escape sequences
+      // Unescape iCal escape sequences
       return match[1]
         .replace(/\\,/g, ',')
         .replace(/\\n/g, ' ')
@@ -334,21 +454,47 @@
     }
 
     // -------------------------------------------------------------------------
-    // FILTER EVENTS
-    // Returns only events whose summary starts with the given prefix.
-    // Case-insensitive. Trims leading whitespace before comparing.
+    // FILTER DIVE EVENTS
+    // Includes events that start with DIVE_PREFIX (case-insensitive) OR
+    // contain PANCAKE_KEYWORD. Everything else is excluded.
+    //
+    // "Wubba lubba dub dub! That's a lotta pancakes!" - Rick Sanchez
     // -------------------------------------------------------------------------
-    function filterEvents(events, prefix) {
-      var lowerPrefix = prefix.toLowerCase();
+    function filterDiveEvents(events) {
       return events.filter(function(event) {
-        return event.summary.trim().toLowerCase().indexOf(lowerPrefix) === 0;
+        var s = event.summary.trim().toLowerCase();
+        return s.indexOf(DIVE_PREFIX) === 0 ||
+               s.indexOf(PANCAKE_KEYWORD) !== -1;
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // CATEGORIZE EVENTS
+    // Assigns each dive event a category: 'meet' or 'other'.
+    //
+    // Rules (evaluated in order):
+    //   1. Starts with DIVE_PREFIX AND contains MEET_KEYWORD ('@') → 'meet'
+    //   2. Everything else (End of Year Party, Pancake Breakfast)  → 'other'
+    //
+    // "It's a trap! (categorization trap)" - Admiral Ackbar
+    // -------------------------------------------------------------------------
+    function categorizeEvents(events) {
+      return events.map(function(event) {
+        var s = event.summary.trim().toLowerCase();
+
+        // Meet: must be a dive-prefixed event AND contain the @ opponent marker
+        var isDivePrefixed = s.indexOf(DIVE_PREFIX) === 0;
+        var hasMeetKeyword = event.summary.indexOf(MEET_KEYWORD) !== -1;
+
+        event.category = (isDivePrefixed && hasMeetKeyword) ? 'meet' : 'other';
+        return event;
       });
     }
 
     // -------------------------------------------------------------------------
     // FORMAT DATE
     // Converts iCal DTSTART value to a human-readable string.
-    // Handles both date-only (20260701) and datetime (20260701T163000) formats.
+    // Handles date-only (20260701) and datetime (20260701T163000) formats.
     // -------------------------------------------------------------------------
     function formatDate(dtValue) {
       if (!dtValue) return '';
@@ -358,7 +504,7 @@
         var year  = dtValue.substring(0, 4);
         var month = parseInt(dtValue.substring(4, 6), 10) - 1;
         var day   = parseInt(dtValue.substring(6, 8), 10);
-        var d = new Date(year, month, day);
+        var d     = new Date(year, month, day);
         return d.toLocaleDateString('en-US', {
           weekday: 'short',
           month:   'long',
@@ -374,7 +520,7 @@
         var day   = parseInt(dtValue.substring(6, 8), 10);
         var hour  = parseInt(dtValue.substring(9, 11), 10);
         var min   = parseInt(dtValue.substring(11, 13), 10);
-        var d = new Date(year, month, day, hour, min);
+        var d     = new Date(year, month, day, hour, min);
         return d.toLocaleDateString('en-US', {
           weekday: 'short',
           month:   'long',
@@ -389,7 +535,7 @@
     // -------------------------------------------------------------------------
     // FORMAT TIME
     // Extracts and formats the time portion of a DTSTART value.
-    // Returns empty string for date-only events.
+    // Returns empty string for date-only (all-day) events.
     // -------------------------------------------------------------------------
     function formatTime(dtValue) {
       if (!dtValue || dtValue.length < 15) return '';
@@ -404,8 +550,8 @@
 
     // -------------------------------------------------------------------------
     // SORT EVENTS
-    // Sorts events chronologically by DTSTART value.
-    // iCal date strings sort correctly as plain strings (YYYYMMDD format).
+    // Sorts events chronologically by DTSTART.
+    // iCal date strings (YYYYMMDD...) sort correctly as plain strings.
     // -------------------------------------------------------------------------
     function sortEvents(events) {
       return events.slice().sort(function(a, b) {
@@ -415,29 +561,28 @@
 
     // -------------------------------------------------------------------------
     // RENDER EVENTS
-    // Builds HTML for the filtered event list and injects it into #content.
-    // "I am putting myself to the fullest possible use." - HAL 9000
+    // Builds the event list HTML and injects it into #content.
+    // Category class (cat-meet / cat-other) drives left-border color via CSS.
     // -------------------------------------------------------------------------
     function renderEvents(events) {
       var contentEl = document.getElementById('content');
 
       if (events.length === 0) {
         contentEl.innerHTML =
-          '<p class="no-events">No upcoming dive events found.<br>' +
-          'Check back soon!</p>';
+          '<p class="no-events">No events match the current filter.<br>' +
+          'Check a box above to show events.</p>';
         return;
       }
 
-      // Sort chronologically before rendering
       var sorted = sortEvents(events);
-
-      var html = '<ul class="event-list">';
+      var html   = '<ul class="event-list">';
 
       sorted.forEach(function(event) {
-        var dateStr = formatDate(event.dtstart);
-        var timeStr = formatTime(event.dtstart);
+        var dateStr  = formatDate(event.dtstart);
+        var timeStr  = formatTime(event.dtstart);
+        var catClass = 'event-card cat-' + event.category;
 
-        html += '<li class="event-card">';
+        html += '<li class="' + catClass + '">';
         html += '  <span class="event-date">' + escapeHtml(dateStr) + '</span>';
         html += '  <div class="event-title">' + escapeHtml(event.summary) + '</div>';
 
