@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Swim Events — Gregory Seahurst Swim Club</title>
+  <!--
+    GSSC SWIM EVENTS PAGE
+    Fetches the live SwimTopia iCal feed, filters for events whose
+    SUMMARY contains the 🏊‍♂️ emoji (the convention GSSC uses for all
+    swim meets), and renders them in a clean list matching GSSC branding.
+
+    EVENT CATEGORIZATION:
+      HIDDEN  — summary contains "POST SEASON" (signup window, not a meet)
+      MEET    — summary contains @ OR Meet OR Prelims OR Champs OR
+                Showcase OR 🏆
+      OTHER   — all remaining swim emoji events (e.g. Battle of the Swamp
+                before @-detection would still catch it via @)
+
+    Checkboxes above the list let users show/hide Meets and Other
+    independently. Both are checked (visible) by default.
+
+    Data source: https://gregory.swimtopia.com/calendar_events.ics
+    Hosted on:   https://beerien.github.io/gssc/swim-filter.html
+
+    Companion page: https://beerien.github.io/gssc/dive-filter.html
+
+    Author:       ACS
+    Last Updated: 2026-05-13
+
+    "These aren't the meets you're looking for." - Obi-Wan, probably
+    "Swimming is life, Captain. But don't tell the divers I said that." - Picard
+    "Life is like a box of swim meets. You never know which one's away." - Forrest
+  -->
+  <style>
+    /* -----------------------------------------------------------------------
+       BASE STYLES
+       Mirrors dive-filter.html. Blue palette to match GSSC branding.
+       Swim accent color uses a slightly lighter blue to visually distinguish
+       from the dive page when both are open side by side.
+    ----------------------------------------------------------------------- */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f4f8;
+      color: #333;
+      padding: 20px;
+    }
+
+    /* Page header */
+    .page-header {
+      background: #154360;
+      color: white;
+      padding: 16px 20px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+
+    .page-header h1 {
+      font-size: 1.4em;
+      font-weight: bold;
+    }
+
+    .page-header p {
+      font-size: 0.85em;
+      margin-top: 4px;
+      opacity: 0.85;
+    }
+
+    /* Loading and error states */
+    .status-message {
+      text-align: center;
+      padding: 30px;
+      color: #666;
+      font-style: italic;
+    }
+
+    .error-message {
+      background: #fdecea;
+      border: 1px solid #e74c3c;
+      border-radius: 6px;
+      padding: 16px;
+      color: #c0392b;
+      font-size: 0.9em;
+    }
+
+    /* SwimTopia link at bottom */
+    .event-list {
+      list-style: none;
+    }
+
+    /* Individual event card */
+    .event-card {
+      background: white;
+      border-radius: 6px;
+      border-left: 5px solid #154360;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    /* Meet cards get a trophy-gold left border accent */
+    .event-card.cat-meet {
+      border-left-color: #1f618d;
+    }
+
+    /* Other swim events get a softer teal accent */
+    .event-card.cat-other {
+      border-left-color: #148f77;
+    }
+
+    /* Date badge — blue box above the title */
+    .event-date {
+      display: inline-block;
+      background: #1f618d;
+      color: white;
+      font-size: 0.75em;
+      font-weight: bold;
+      padding: 3px 8px;
+      border-radius: 3px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /* Event title */
+    .event-title {
+      font-size: 1em;
+      font-weight: bold;
+      color: #154360;
+      margin-bottom: 4px;
+    }
+
+    /* Location line */
+    .event-location {
+      font-size: 0.85em;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .event-location::before {
+      content: "📍 ";
+    }
+
+    /* Time line */
+    .event-time {
+      font-size: 0.85em;
+      color: #555;
+      margin-bottom: 4px;
+    }
+
+    .event-time::before {
+      content: "🕐 ";
+    }
+
+    /* Description */
+    .event-description {
+      font-size: 0.82em;
+      color: #555;
+      margin-top: 8px;
+      line-height: 1.5;
+      border-top: 1px solid #eee;
+      padding-top: 8px;
+    }
+
+    /* Cross-link to dive page */
+    .companion-link {
+      text-align: center;
+      margin-bottom: 16px;
+      font-size: 0.82em;
+    }
+
+    .companion-link a {
+      color: #1f618d;
+      text-decoration: none;
+      background: #dbeafe;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid #aed6f1;
+    }
+
+    .companion-link a:hover {
+      background: #aed6f1;
+    }
+
+    /* -----------------------------------------------------------------------
+       FILTER CONTROLS
+       Checkbox row sitting between the companion link and the event list.
+       Each checkbox independently shows/hides its event category.
+    ----------------------------------------------------------------------- */
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .filter-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: white;
+      border: 1px solid #aed6f1;
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 0.85em;
+      font-weight: bold;
+      color: #154360;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .filter-label:hover {
+      background: #dbeafe;
+    }
+
+    /* Visually dim the pill when its checkbox is unchecked */
+    .filter-label.unchecked {
+      background: #f0f4f8;
+      color: #999;
+      border-color: #ccc;
+    }
+
+    .filter-label input[type="checkbox"] {
+      accent-color: #1f618d;
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+    }
+
+    /* "No results" message when both checkboxes are unchecked */
+    .no-events {
+      text-align: center;
+      padding: 30px;
+      color: #888;
+    }
+    .swimtopia-link {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 0.8em;
+      color: #888;
+    }
+
+    .swimtopia-link a {
+      color: #1f618d;
+      text-decoration: none;
+    }
+
+    .swimtopia-link a:hover {
+      text-decoration: underline;
+    }
+
+    /* Responsive — tighten up on small screens */
+    @media (max-width: 480px) {
+      body {
+        padding: 10px;
+      }
+      .page-header h1 {
+        font-size: 1.2em;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-header">
+    <h1>🏊‍♂️ Swim Events</h1>
+    <p>Gregory Seahurst Swim Club — current season schedule</p>
+  </div>
+
+  <!-- Cross-link to companion dive page -->
+  <div class="companion-link">
+    <a href="https://beerien.github.io/gssc/dive-filter.html">
+      🤿 View Dive Events →
+    </a>
+  </div>
+
+  <!-- Category filter checkboxes — both checked by default -->
+  <div class="filter-bar">
+    <label class="filter-label" id="label-meets">
+      <input type="checkbox" id="chk-meets" checked>
+      🏆 Swim Meets
+    </label>
+    <label class="filter-label" id="label-other">
+      <input type="checkbox" id="chk-other" checked>
+      🎉 Other Swim Events
+    </label>
+  </div>
+
+  <!-- Content area — populated by JavaScript below -->
+  <div id="content">
+    <p class="status-message">Loading swim events...</p>
+  </div>
+
+  <div class="swimtopia-link">
+    <a href="https://gregory.swimtopia.com/swim_meets" target="_blank">
+      View full schedule on SwimTopia →
+    </a>
+  </div>
+
+  <script>
+    // -------------------------------------------------------------------------
+    // CONFIGURATION
+    // Author:       ACS
+    // Last Updated: 2026-05-13
+    // "I am putting myself to the fullest possible use, which is all I think
+    //  any conscious entity can ever hope to do." - HAL 9000
+    // -------------------------------------------------------------------------
+
+    // SwimTopia public iCal feed URL (no auth token — calendar is public)
+    var ICAL_URL = 'https://gregory.swimtopia.com/calendar_events.ics';
+
+    // Base swimmer emoji surrogate pair — matches all ZWJ gender variants
+    // (🏊‍♂️ 🏊‍♀️ 🏊). Used to identify swim events in the feed.
+    var SWIM_EMOJI = '\uD83C\uDFCA';
+
+    // MEET DETECTION KEYWORDS (case-insensitive substring match on summary)
+    // Derived from exhaustive review of the 2026 live feed. Update if
+    // GSSC changes their naming conventions next season.
+    //
+    // "Fascinating. They appear to be organizing by keyword." - Spock
+    var MEET_KEYWORDS = ['@', 'meet', 'prelims', 'champs', 'showcase', '\uD83C\uDFC6'];
+    //                   ^     ^       ^           ^         ^            ^ trophy emoji 🏆
+
+    // Events whose summary contains this string are hidden entirely.
+    // POST SEASON SIGN UP is an admin window, not a competition event.
+    var HIDDEN_KEYWORD = 'POST SEASON';
+
+    // CORS proxy — required because browsers block direct cross-origin
+    // fetches of .ics files. corsproxy.io returns plain text response.
+    var PROXY_URL = 'https://corsproxy.io/?' + encodeURIComponent(ICAL_URL);
+
+    // Module-level event store — populated after fetch, used by applyFilter()
+    var allSwimEvents = [];
+
+    // -------------------------------------------------------------------------
+    // FETCH AND RENDER
+    // "Wubba lubba dub dub! Time to fetch some swim meets!" - Rick Sanchez
+    // -------------------------------------------------------------------------
+    fetch(PROXY_URL)
+      .then(function(response) {
+        if (!response.ok) {
+          throw new Error('Network response was not ok: ' + response.status);
+        }
+        return response.text();
+      })
+      .then(function(icalText) {
+        if (!icalText) {
+          throw new Error('Empty response from proxy.');
+        }
+
+        var events   = parseIcal(icalText);
+        var swimEvts = filterSwimEvents(events);
+
+        // Categorize and store; hidden events are dropped here permanently
+        allSwimEvents = categorizeEvents(swimEvts);
+
+        // Wire checkbox change handlers now that data is ready
+        document.getElementById('chk-meets').addEventListener('change', applyFilter);
+        document.getElementById('chk-other').addEventListener('change', applyFilter);
+
+        // Initial render with both categories visible
+        applyFilter();
+      })
+      .catch(function(err) {
+        document.getElementById('content').innerHTML =
+          '<div class="error-message">' +
+          '<strong>Could not load swim events.</strong><br>' +
+          'Error: ' + err.message + '<br><br>' +
+          'Try refreshing, or visit the ' +
+          '<a href="https://gregory.swimtopia.com/swim_meets">full schedule</a> ' +
+          'on SwimTopia directly.' +
+          '</div>';
+        console.error('Swim filter fetch error:', err);
+      });
+
+    // -------------------------------------------------------------------------
+    // APPLY FILTER
+    // Reads checkbox states and re-renders the visible event subset.
+    // Also updates pill label styles to reflect checked/unchecked state.
+    // Called on initial load and on every checkbox change event.
+    // -------------------------------------------------------------------------
+    function applyFilter() {
+      var showMeets = document.getElementById('chk-meets').checked;
+      var showOther = document.getElementById('chk-other').checked;
+
+      // Update pill appearance to reflect state
+      document.getElementById('label-meets').className =
+        'filter-label' + (showMeets ? '' : ' unchecked');
+      document.getElementById('label-other').className =
+        'filter-label' + (showOther ? '' : ' unchecked');
+
+      // Build visible subset based on checkbox state
+      var visible = allSwimEvents.filter(function(event) {
+        if (event.category === 'meet')  return showMeets;
+        if (event.category === 'other') return showOther;
+        return false;
+      });
+
+      renderEvents(visible);
+    }
+
+    // -------------------------------------------------------------------------
+    // PARSE iCAL
+    // Extracts VEVENT blocks from raw iCal text.
+    // Returns an array of plain objects: summary, dtstart, dtend,
+    // location, description.
+    // -------------------------------------------------------------------------
+    function parseIcal(text) {
+      var events = [];
+
+      // Normalize all line endings to \n regardless of source format (CRLF/LF/CR)
+      text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+      // Unfold iCal continuation lines (lines wrapped with a leading space or tab)
+      text = text.replace(/\n[ \t]/g, '');
+
+      // Split on VEVENT boundaries; first element is the calendar header — skip it
+      var eventBlocks = text.split('BEGIN:VEVENT');
+
+      for (var i = 1; i < eventBlocks.length; i++) {
+        var block = eventBlocks[i];
+        var event = {};
+
+        event.summary     = extractField(block, 'SUMMARY');
+        event.location    = extractField(block, 'LOCATION');
+        event.description = extractField(block, 'DESCRIPTION');
+        event.dtstart     = extractField(block, 'DTSTART');
+        event.dtend       = extractField(block, 'DTEND');
+
+        // Only include events with at minimum a summary and a start date
+        if (event.summary && event.dtstart) {
+          events.push(event);
+        }
+      }
+
+      return events;
+    }
+
+    // -------------------------------------------------------------------------
+    // EXTRACT FIELD
+    // Pulls the value of a named iCal property from a VEVENT block.
+    // Handles properties with parameters, e.g. DTSTART;TZID=...:value
+    // -------------------------------------------------------------------------
+    function extractField(block, fieldName) {
+      var regex = new RegExp(fieldName + '(?:;[^:]*)?:([^\\r\\n]*)', 'i');
+      var match = block.match(regex);
+      if (!match) return '';
+
+      // Unescape iCal escape sequences
+      return match[1]
+        .replace(/\\,/g, ',')
+        .replace(/\\n/g, ' ')
+        .replace(/\\;/g, ';')
+        .replace(/&nbsp\\;/g, ' ')
+        .trim();
+    }
+
+    // -------------------------------------------------------------------------
+    // FILTER SWIM EVENTS
+    // Returns only events whose SUMMARY contains the 🏊 swimmer emoji.
+    // -------------------------------------------------------------------------
+    function filterSwimEvents(events) {
+      return events.filter(function(event) {
+        return event.summary.indexOf(SWIM_EMOJI) !== -1;
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // CATEGORIZE EVENTS
+    // Assigns each swim event a category: 'meet', 'other', or 'hidden'.
+    // Hidden events are dropped immediately and never reach the renderer.
+    //
+    // Rules (evaluated in order):
+    //   1. Summary contains HIDDEN_KEYWORD  → dropped entirely
+    //   2. Summary contains any MEET_KEYWORD → category = 'meet'
+    //   3. Everything else                   → category = 'other'
+    //
+    // "It's a trap! (categorization trap, that is)" - Admiral Ackbar
+    // -------------------------------------------------------------------------
+    function categorizeEvents(events) {
+      var result = [];
+
+      events.forEach(function(event) {
+        var s = event.summary;
+
+        // Rule 1 — hidden entirely (POST SEASON SIGN UP signup window)
+        if (s.toUpperCase().indexOf(HIDDEN_KEYWORD) !== -1) {
+          return; // drop — forEach continue
+        }
+
+        // Rule 2 — meet detection via keyword list
+        var isMeet = MEET_KEYWORDS.some(function(kw) {
+          return s.toLowerCase().indexOf(kw.toLowerCase()) !== -1;
+        });
+
+        event.category = isMeet ? 'meet' : 'other';
+        result.push(event);
+      });
+
+      return result;
+    }
+
+    // -------------------------------------------------------------------------
+    // FORMAT DATE
+    // Converts iCal DTSTART value to a human-readable string.
+    // Handles date-only (20260701) and datetime (20260701T163000) formats.
+    // -------------------------------------------------------------------------
+    function formatDate(dtValue) {
+      if (!dtValue) return '';
+
+      // Date-only: YYYYMMDD
+      if (dtValue.length === 8) {
+        var year  = dtValue.substring(0, 4);
+        var month = parseInt(dtValue.substring(4, 6), 10) - 1;
+        var day   = parseInt(dtValue.substring(6, 8), 10);
+        var d     = new Date(year, month, day);
+        return d.toLocaleDateString('en-US', {
+          weekday: 'short',
+          month:   'long',
+          day:     'numeric',
+          year:    'numeric'
+        });
+      }
+
+      // DateTime: YYYYMMDDTHHmmss[Z]
+      if (dtValue.length >= 15) {
+        var year  = dtValue.substring(0, 4);
+        var month = parseInt(dtValue.substring(4, 6), 10) - 1;
+        var day   = parseInt(dtValue.substring(6, 8), 10);
+        var hour  = parseInt(dtValue.substring(9, 11), 10);
+        var min   = parseInt(dtValue.substring(11, 13), 10);
+        var d     = new Date(year, month, day, hour, min);
+        return d.toLocaleDateString('en-US', {
+          weekday: 'short',
+          month:   'long',
+          day:     'numeric',
+          year:    'numeric'
+        });
+      }
+
+      return dtValue;
+    }
+
+    // -------------------------------------------------------------------------
+    // FORMAT TIME
+    // Extracts and formats the time portion of a DTSTART value.
+    // Returns empty string for date-only (all-day) events.
+    // -------------------------------------------------------------------------
+    function formatTime(dtValue) {
+      if (!dtValue || dtValue.length < 15) return '';
+
+      var hour = parseInt(dtValue.substring(9, 11), 10);
+      var min  = dtValue.substring(11, 13);
+      var ampm = hour >= 12 ? 'PM' : 'AM';
+      var h12  = hour % 12 || 12;
+
+      return h12 + ':' + min + ' ' + ampm;
+    }
+
+    // -------------------------------------------------------------------------
+    // SORT EVENTS
+    // Sorts events chronologically by DTSTART.
+    // iCal date strings (YYYYMMDD...) sort correctly as plain strings.
+    // -------------------------------------------------------------------------
+    function sortEvents(events) {
+      return events.slice().sort(function(a, b) {
+        return a.dtstart > b.dtstart ? 1 : -1;
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // RENDER EVENTS
+    // Builds the event list HTML and injects it into #content.
+    // Category class (cat-meet / cat-other) drives left-border color via CSS.
+    // -------------------------------------------------------------------------
+    function renderEvents(events) {
+      var contentEl = document.getElementById('content');
+
+      if (events.length === 0) {
+        contentEl.innerHTML =
+          '<p class="no-events">No events match the current filter.<br>' +
+          'Check a box above to show events.</p>';
+        return;
+      }
+
+      var sorted = sortEvents(events);
+      var html   = '<ul class="event-list">';
+
+      sorted.forEach(function(event) {
+        var dateStr  = formatDate(event.dtstart);
+        var timeStr  = formatTime(event.dtstart);
+        var catClass = 'event-card cat-' + event.category;
+
+        html += '<li class="' + catClass + '">';
+        html += '  <span class="event-date">' + escapeHtml(dateStr) + '</span>';
+        html += '  <div class="event-title">' + escapeHtml(event.summary) + '</div>';
+
+        if (event.location) {
+          html += '  <div class="event-location">' +
+                  escapeHtml(event.location) + '</div>';
+        }
+
+        if (timeStr) {
+          html += '  <div class="event-time">' + escapeHtml(timeStr) + '</div>';
+        }
+
+        if (event.description) {
+          html += '  <div class="event-description">' +
+                  escapeHtml(event.description) + '</div>';
+        }
+
+        html += '</li>';
+      });
+
+      html += '</ul>';
+      contentEl.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------------------
+    // ESCAPE HTML
+    // Prevents XSS from unexpected content in the iCal feed.
+    // "That's no moon... that's a script injection." - Obi-Wan
+    // -------------------------------------------------------------------------
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+  </script>
+</body>
+</html>
